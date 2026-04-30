@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   runApp(const MyApp());
@@ -54,7 +57,65 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
+class Announcement {
+  final String title;
+  final String description;
+
+  Announcement({required this.title, required this.description});
+
+  factory Announcement.fromJson(Map<String, dynamic> json) {
+    return Announcement(
+      title: json['title'] as String? ?? '',
+      description: json['content'] as String? ?? json['description'] as String? ?? '',
+    );
+  }
+}
+
 class _MyHomePageState extends State<MyHomePage> {
+  late Future<List<Announcement>> _announcementsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _announcementsFuture = fetchAnnouncements();
+  }
+
+  Future<List<Announcement>> fetchAnnouncements() async {
+    // Replace this with your deployed Firebase Function URL.
+    // Example: https://us-central1-YOUR_PROJECT.cloudfunctions.net/getAnnouncementsEthan
+    final uri = Uri.parse('https://your-backend.example.com/getAnnouncementsEthan');
+    final response = await http.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load announcements: ${response.statusCode}');
+    }
+
+    final raw = jsonDecode(response.body);
+    final List<dynamic>? rawAnnouncements;
+
+    if (raw is List) {
+      rawAnnouncements = raw;
+    } else if (raw is Map<String, dynamic>) {
+      if (raw['announcements'] is List) {
+        rawAnnouncements = raw['announcements'] as List<dynamic>;
+      } else if (raw['data'] is Map<String, dynamic> && raw['data']['announcements'] is List) {
+        rawAnnouncements = raw['data']['announcements'] as List<dynamic>;
+      } else {
+        rawAnnouncements = null;
+      }
+    } else {
+      rawAnnouncements = null;
+    }
+
+    if (rawAnnouncements == null) {
+      throw Exception('Unexpected response format from announcements API.');
+    }
+
+    return rawAnnouncements
+        .map((item) => Announcement.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
   String _getCurrentDate() {
     final now = DateTime.now();
     final months = [
@@ -157,19 +218,48 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _buildAnnouncementCard(
-                      title: 'Pep Rally This Friday',
-                      description: 'Join us for an exciting pep rally at 2:00 PM in the gymnasium. Come support your Lions!',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildAnnouncementCard(
-                      title: 'Science Fair Submissions Due',
-                      description: 'All science fair project proposals are due by February 10th. Submit online through the school portal.',
-                    ),
-                    const SizedBox(height: 12),
-                    _buildAnnouncementCard(
-                      title: 'Winter Sports Registration',
-                      description: 'Sign up for basketball, volleyball, and wrestling. Registration closes February 15th.',
+                    FutureBuilder<List<Announcement>>(
+                      future: _announcementsFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16.0),
+                            child: Center(child: CircularProgressIndicator()),
+                          );
+                        }
+
+                        if (snapshot.hasError) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16.0),
+                            child: Text(
+                              'Could not load announcements: ${snapshot.error}',
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                          );
+                        }
+
+                        final announcements = snapshot.data ?? [];
+                        if (announcements.isEmpty) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 16.0),
+                            child: Text('No announcements available.'),
+                          );
+                        }
+
+                        return Column(
+                          children: announcements
+                              .map(
+                                (announcement) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 12.0),
+                                  child: _buildAnnouncementCard(
+                                    title: announcement.title,
+                                    description: announcement.description,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        );
+                      },
                     ),
                   ],
                 ),
